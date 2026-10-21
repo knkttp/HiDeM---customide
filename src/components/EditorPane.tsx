@@ -4,6 +4,7 @@ import type * as Monaco from 'monaco-editor';
 import { Plus, X, HardDrive, Edit3 } from 'lucide-react';
 import { SupportedLanguage, LANGUAGE_META } from './TopBar';
 import { IdeThemeId } from './ThemeModal';
+import { CustomSnippet } from './TemplateModal';
 
 export interface CodeFileTab {
   id: string;
@@ -25,9 +26,23 @@ interface EditorPaneProps {
   onSaveShortcut: () => void;
   theme: IdeThemeId;
   statusMessage?: string | null;
+  snippets: CustomSnippet[];
 }
 
-let providersRegistered = false;
+// Code::Blocks style core C/C++ & STL identifiers (flat, lightweight, only triggered after typing >= 3 chars)
+const CODEBLOCKS_CPP_IDENTIFIERS = [
+  'include', 'bits/stdc++.h', 'using', 'namespace', 'std', 'long', 'int', 'double', 'float',
+  'char', 'bool', 'void', 'auto', 'const', 'static', 'struct', 'class', 'return', 'break',
+  'continue', 'while', 'for', 'ifelse', 'switch', 'case', 'default', 'typedef', 'typename',
+  'vector', 'pair', 'map', 'set', 'unordered_map', 'unordered_set', 'multiset', 'queue',
+  'priority_queue', 'stack', 'deque', 'string', 'bitset', 'array', 'tuple',
+  'push_back', 'emplace_back', 'pop_back', 'front', 'back', 'begin', 'end', 'rbegin', 'rend',
+  'size', 'empty', 'clear', 'insert', 'erase', 'find', 'count', 'lower_bound', 'upper_bound',
+  'sort', 'reverse', 'swap', 'min', 'max', 'abs', 'gcd', 'lcm', 'memset', 'memcpy',
+  'cin', 'cout', 'cerr', 'endl', 'ios_base', 'sync_with_stdio', 'tie', 'nullptr', 'first', 'second',
+];
+
+let completionDisposables: Monaco.IDisposable[] = [];
 
 function registerCustomThemes(monaco: typeof Monaco) {
   monaco.editor.defineTheme('one-dark-pro', {
@@ -136,249 +151,66 @@ function registerCustomThemes(monaco: typeof Monaco) {
   });
 }
 
-function registerIntelliSenseProviders(monaco: typeof Monaco) {
-  if (providersRegistered) return;
-  providersRegistered = true;
-
-  if (monaco.languages.json?.jsonDefaults) {
-    monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
-      validate: true,
-      allowComments: false,
-      schemas: [],
-      enableSchemaRequest: true,
-    });
+function registerCodeBlocksAndUserSnippets(
+  monaco: typeof Monaco,
+  userSnippets: CustomSnippet[]
+) {
+  // Dispose previous providers
+  for (const d of completionDisposables) {
+    d.dispose();
   }
+  completionDisposables = [];
 
-  if (monaco.languages.html?.htmlDefaults) {
-    monaco.languages.html.htmlDefaults.setOptions({
-      suggest: { html5: true },
+  const languages: SupportedLanguage[] = ['cpp', 'rust', 'python', 'html', 'json'];
+
+  for (const lang of languages) {
+    const disposable = monaco.languages.registerCompletionItemProvider(lang, {
+      provideCompletionItems: (model, position) => {
+        const word = model.getWordUntilPosition(position);
+        const range = {
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          startColumn: word.startColumn,
+          endColumn: word.endColumn,
+        };
+
+        const suggestions: Monaco.languages.CompletionItem[] = [];
+
+        // 1. User-created Custom Snippets for this language
+        const matchingSnippets = userSnippets.filter(
+          (s) => s.language === 'all' || s.language === lang
+        );
+        for (const snip of matchingSnippets) {
+          suggestions.push({
+            label: snip.prefix,
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            detail: snip.description,
+            insertText: snip.body,
+            range,
+          });
+        }
+
+        // 2. Code::Blocks style lightweight identifier completion (triggers cleanly after >= 2 chars)
+        if (lang === 'cpp' && word.word.length >= 2) {
+          for (const kw of CODEBLOCKS_CPP_IDENTIFIERS) {
+            if (kw.startsWith(word.word) && kw !== word.word) {
+              suggestions.push({
+                label: kw,
+                kind: monaco.languages.CompletionItemKind.Text,
+                insertText: kw,
+                range,
+              });
+            }
+          }
+        }
+
+        return { suggestions };
+      },
     });
+
+    completionDisposables.push(disposable);
   }
-
-  monaco.languages.registerCompletionItemProvider('cpp', {
-    provideCompletionItems: (model, position) => {
-      const word = model.getWordUntilPosition(position);
-      const range = {
-        startLineNumber: position.lineNumber,
-        endLineNumber: position.lineNumber,
-        startColumn: word.startColumn,
-        endColumn: word.endColumn,
-      };
-
-      const stlKeywords = [
-        'vector',
-        'priority_queue',
-        'sort',
-        'lower_bound',
-        'upper_bound',
-        'unordered_map',
-        'unordered_set',
-        'map',
-        'set',
-        'queue',
-        'stack',
-        'deque',
-        'pair',
-        'make_pair',
-        'push_back',
-        'emplace_back',
-        'cin',
-        'cout',
-        'endl',
-        'long long',
-        'ios_base::sync_with_stdio(false);',
-      ];
-
-      const suggestions: Monaco.languages.CompletionItem[] = stlKeywords.map((kw) => ({
-        label: kw,
-        kind: monaco.languages.CompletionItemKind.Keyword,
-        insertText: kw,
-        detail: 'C++17 STL / Keyword',
-        range,
-      }));
-
-      suggestions.push(
-        {
-          label: 'cptemplate',
-          kind: monaco.languages.CompletionItemKind.Snippet,
-          insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-          detail: 'Competitive Programming Full C++17 Template',
-          insertText: [
-            '#include <bits/stdc++.h>',
-            'using namespace std;',
-            'using ll = long long;',
-            '',
-            'void solve() {',
-            '\t${1:// Write logic here}',
-            '}',
-            '',
-            'int main() {',
-            '\tios_base::sync_with_stdio(false);',
-            '\tcin.tie(nullptr);',
-            '\tsolve();',
-            '\treturn 0;',
-            '}',
-          ].join('\n'),
-          range,
-        },
-        {
-          label: 'fori',
-          kind: monaco.languages.CompletionItemKind.Snippet,
-          insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-          detail: 'For loop 0..n',
-          insertText: 'for (int ${1:i} = 0; ${1:i} < ${2:n}; ++${1:i}) {\n\t${3}\n}',
-          range,
-        },
-        {
-          label: 'fastio',
-          kind: monaco.languages.CompletionItemKind.Snippet,
-          insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-          detail: 'Fast I/O C++',
-          insertText: 'ios_base::sync_with_stdio(false);\ncin.tie(nullptr);',
-          range,
-        }
-      );
-
-      return { suggestions };
-    },
-  });
-
-  monaco.languages.registerCompletionItemProvider('rust', {
-    provideCompletionItems: (model, position) => {
-      const word = model.getWordUntilPosition(position);
-      const range = {
-        startLineNumber: position.lineNumber,
-        endLineNumber: position.lineNumber,
-        startColumn: word.startColumn,
-        endColumn: word.endColumn,
-      };
-
-      const rustItems = [
-        'println!',
-        'vec!',
-        'String::new()',
-        'std::io::stdin()',
-        'read_line',
-        'unwrap()',
-        'collect::<Vec<_>>()',
-        'HashMap',
-        'BTreeSet',
-        'BinaryHeap',
-      ];
-
-      const suggestions: Monaco.languages.CompletionItem[] = rustItems.map((item) => ({
-        label: item,
-        kind: monaco.languages.CompletionItemKind.Function,
-        insertText: item,
-        detail: 'Rust Stdlib',
-        range,
-      }));
-
-      suggestions.push(
-        {
-          label: 'cptemplate',
-          kind: monaco.languages.CompletionItemKind.Snippet,
-          insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-          detail: 'Rust Fast Stdin Template',
-          insertText: [
-            'use std::io::{self, Read};',
-            '',
-            'fn main() {',
-            '\tlet mut input = String::new();',
-            '\tio::stdin().read_to_string(&mut input).unwrap();',
-            '\tlet mut tokens = input.split_whitespace();',
-            '\t${1}',
-            '}',
-          ].join('\n'),
-          range,
-        },
-        {
-          label: 'fori',
-          kind: monaco.languages.CompletionItemKind.Snippet,
-          insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-          detail: 'Rust range loop',
-          insertText: 'for ${1:i} in 0..${2:n} {\n\t${3}\n}',
-          range,
-        }
-      );
-
-      return { suggestions };
-    },
-  });
-
-  monaco.languages.registerCompletionItemProvider('python', {
-    provideCompletionItems: (model, position) => {
-      const word = model.getWordUntilPosition(position);
-      const range = {
-        startLineNumber: position.lineNumber,
-        endLineNumber: position.lineNumber,
-        startColumn: word.startColumn,
-        endColumn: word.endColumn,
-      };
-
-      const pyKeywords = [
-        'sys.stdin.read',
-        'input',
-        'print',
-        'enumerate',
-        'zip',
-        'sorted',
-        'collections.deque',
-        'heapq.heappush',
-        'heapq.heappop',
-        'bisect.bisect_left',
-        'math.gcd',
-      ];
-
-      const suggestions: Monaco.languages.CompletionItem[] = pyKeywords.map((kw) => ({
-        label: kw,
-        kind: monaco.languages.CompletionItemKind.Function,
-        insertText: kw,
-        detail: 'Python 3 Built-in / Stdlib',
-        range,
-      }));
-
-      suggestions.push(
-        {
-          label: 'cptemplate',
-          kind: monaco.languages.CompletionItemKind.Snippet,
-          insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-          detail: 'Python 3 Fast I/O Template',
-          insertText: [
-            'import sys',
-            '',
-            'def solve():',
-            '\tdata = sys.stdin.read().split()',
-            '\tif not data:',
-            '\t\treturn',
-            '\t${1:# Write logic here}',
-            '',
-            'if __name__ == "__main__":',
-            '\tsolve()',
-          ].join('\n'),
-          range,
-        },
-        {
-          label: 'fori',
-          kind: monaco.languages.CompletionItemKind.Snippet,
-          insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-          detail: 'Python for i in range(n)',
-          insertText: 'for ${1:i} in range(${2:n}):\n\t${3:pass}',
-          range,
-        },
-        {
-          label: 'fastio',
-          kind: monaco.languages.CompletionItemKind.Snippet,
-          insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-          detail: 'sys.stdin.readline fast input',
-          insertText: 'import sys\ninput = sys.stdin.readline',
-          range,
-        }
-      );
-
-      return { suggestions };
-    },
-  });
 }
 
 export const EditorPane: React.FC<EditorPaneProps> = ({
@@ -392,6 +224,7 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
   onSaveShortcut,
   theme,
   statusMessage,
+  snippets,
 }) => {
   const monacoRef = useRef<typeof Monaco | null>(null);
   const saveCallbackRef = useRef(onSaveShortcut);
@@ -405,7 +238,7 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
   const handleEditorMount: OnMount = (editor, monaco) => {
     monacoRef.current = monaco;
     registerCustomThemes(monaco);
-    registerIntelliSenseProviders(monaco);
+    registerCodeBlocksAndUserSnippets(monaco, snippets);
     monaco.editor.setTheme(theme);
 
     // Bind Ctrl+S / Cmd+S inside Monaco Editor
@@ -419,6 +252,12 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
       monacoRef.current.editor.setTheme(theme);
     }
   }, [theme]);
+
+  useEffect(() => {
+    if (monacoRef.current) {
+      registerCodeBlocksAndUserSnippets(monacoRef.current, snippets);
+    }
+  }, [snippets]);
 
   const startRename = (tab: CodeFileTab) => {
     setEditingTabId(tab.id);
@@ -434,7 +273,7 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
 
   return (
     <div className="relative h-full w-full flex flex-col overflow-hidden">
-      {/* Multi-File Tabs Bar (VSCode style) */}
+      {/* Multi-File Tabs Bar */}
       <div className="flex items-center border-b border-white/10 bg-slate-950/65 px-2 pt-1.5 gap-1 overflow-x-auto">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTab?.id;
@@ -488,7 +327,7 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
               {tab.isDirty && (
                 <span
                   className="h-2 w-2 rounded-full bg-amber-400"
-                  title="Unsaved changes (Press Ctrl+S to save)"
+                  title="Unsaved changes (Ctrl+S)"
                 />
               )}
 
@@ -514,21 +353,19 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
           type="button"
           onClick={onAddTab}
           className="ml-1 mb-1 flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 hover:bg-indigo-600/30 hover:border-indigo-500/40 px-2.5 py-1 text-xs font-medium text-slate-300 hover:text-white transition flex-shrink-0"
-          title="Create a new file tab using the current language template"
+          title="Create a new file tab"
         >
           <Plus className="h-3.5 w-3.5" />
           <span>New File</span>
         </button>
       </div>
 
-      {/* File Path & Status Subheader */}
+      {/* Clean File Path Subheader */}
       <div className="flex items-center justify-between border-b border-white/10 bg-slate-950/45 px-4 py-1 text-[11px] text-slate-400">
         <div className="flex items-center gap-2 min-w-0">
           <HardDrive className="h-3.5 w-3.5 text-indigo-400 flex-shrink-0" />
           <span className="font-mono text-slate-300 truncate">
-            {activeTab?.filePath
-              ? `${activeTab.filePath} (Linked — Press Ctrl+S to save, Ctrl+O to open)`
-              : `${activeTab?.name || 'untitled'} (In-Memory Buffer — Press Ctrl+S to save, Ctrl+O to open)`}
+            {activeTab?.filePath || activeTab?.name || 'untitled'}
           </span>
           <button
             type="button"
@@ -540,20 +377,14 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
           </button>
         </div>
 
-        <div className="flex items-center gap-3 flex-shrink-0">
-          {statusMessage ? (
+        {statusMessage && (
+          <div className="flex items-center flex-shrink-0">
             <span className="font-medium text-emerald-400">{statusMessage}</span>
-          ) : (
-            <span className="hidden sm:inline text-slate-400">
-              Snippets: <code className="text-indigo-300">cptemplate</code>,{' '}
-              <code className="text-indigo-300">fori</code>,{' '}
-              <code className="text-indigo-300">fastio</code>
-            </span>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
-      {/* Monaco Container */}
+      {/* Monaco Container (Code::Blocks style lightweight completion) */}
       <div className="flex-1 min-h-0">
         <Editor
           path={activeTab?.id}
@@ -573,9 +404,25 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
             tabSize: 4,
             wordWrap: 'on',
             padding: { top: 14, bottom: 14 },
-            quickSuggestions: true,
-            suggestOnTriggerCharacters: true,
-            parameterHints: { enabled: true },
+            // Code::Blocks-like completion: document words + custom snippets, no noisy parameter hints or hover popups
+            wordBasedSuggestions: 'currentDocument',
+            quickSuggestions: {
+              other: true,
+              comments: false,
+              strings: false,
+            },
+            quickSuggestionsDelay: 180,
+            suggestOnTriggerCharacters: false,
+            parameterHints: { enabled: false },
+            hover: { enabled: false },
+            inlineSuggest: { enabled: false },
+            snippetSuggestions: 'top',
+            suggest: {
+              showIcons: false,
+              showStatusBar: false,
+              preview: false,
+              filterGraceful: false,
+            },
             bracketPairColorization: { enabled: true },
             smoothScrolling: true,
             cursorBlinking: 'smooth',

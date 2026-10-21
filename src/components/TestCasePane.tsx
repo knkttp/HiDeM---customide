@@ -147,7 +147,7 @@ export const TestCasePane: React.FC<TestCasePaneProps> = ({
         <div className="flex items-center gap-2.5">
           <Terminal className="h-4 w-4 text-indigo-400" />
           <span className="text-xs font-semibold uppercase tracking-wider text-slate-200">
-            Auto-Judge Multi-Test Cases ({acCount}/{testCases.length} AC)
+            TEST CASE ({acCount}/{testCases.length} AC)
           </span>
         </div>
 

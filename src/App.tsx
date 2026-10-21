@@ -3,7 +3,7 @@ import { TopBar, SupportedLanguage, LANGUAGE_META } from './components/TopBar';
 import { EditorPane, CodeFileTab } from './components/EditorPane';
 import { TestCasePane, TestCase } from './components/TestCasePane';
 import { ThemeModal, ThemeConfig, PRESET_WALLPAPERS } from './components/ThemeModal';
-import { TemplateModal } from './components/TemplateModal';
+import { TemplateModal, CustomSnippet } from './components/TemplateModal';
 
 // Type declarations for Electron Desktop Bridge & Chromium File System Access API
 interface FilePickerAcceptType {
@@ -70,6 +70,7 @@ declare global {
 const STORAGE_KEYS = {
   THEME_CONFIG: 'custom_ide_theme_config_v1',
   CUSTOM_TEMPLATES: 'custom_ide_custom_templates_v2',
+  CUSTOM_SNIPPETS: 'custom_ide_custom_snippets_v1',
   TABS: 'custom_ide_open_tabs_v2',
   ACTIVE_TAB_ID: 'custom_ide_active_tab_id_v2',
   TEST_CASES: 'custom_ide_test_cases_v1',
@@ -253,6 +254,20 @@ export const App: React.FC = () => {
     return FACTORY_CODE_TEMPLATES;
   });
 
+  // 1b. User-Created Custom Snippets
+  const [snippets, setSnippets] = useState<CustomSnippet[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.CUSTOM_SNIPPETS);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  });
+
   // 2. Multi-File Tabs State
   const [tabs, setTabs] = useState<CodeFileTab[]>(() => {
     try {
@@ -351,6 +366,10 @@ export const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.CUSTOM_TEMPLATES, JSON.stringify(customTemplates));
   }, [customTemplates]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.CUSTOM_SNIPPETS, JSON.stringify(snippets));
+  }, [snippets]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.TABS, JSON.stringify(tabs));
@@ -831,6 +850,7 @@ export const App: React.FC = () => {
               onSaveShortcut={handleSaveFile}
               theme={themeConfig.theme}
               statusMessage={statusMessage}
+              snippets={snippets}
             />
           </section>
 
@@ -854,7 +874,7 @@ export const App: React.FC = () => {
         onChange={setThemeConfig}
       />
 
-      {/* Editable Custom Code Templates Modal */}
+      {/* Editable Custom Code Templates & User Snippets Modal */}
       <TemplateModal
         isOpen={isTemplateModalOpen}
         onClose={() => setIsTemplateModalOpen(false)}
@@ -864,6 +884,8 @@ export const App: React.FC = () => {
         factoryTemplates={FACTORY_CODE_TEMPLATES}
         onSaveTemplates={setCustomTemplates}
         onApplyTemplateToActiveTab={handleApplyTemplateToActiveTab}
+        snippets={snippets}
+        onSaveSnippets={setSnippets}
       />
     </div>
   );

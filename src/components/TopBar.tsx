@@ -21,37 +21,32 @@ export type SupportedLanguage = 'cpp' | 'rust' | 'python' | 'html' | 'json';
 
 export const LANGUAGE_META: Record<
   SupportedLanguage,
-  { label: string; badge: string; ext: string; cmdHint: string }
+  { label: string; badge: string; ext: string }
 > = {
   cpp: {
     label: 'C++17',
     badge: 'C++',
     ext: '.cpp',
-    cmdHint: 'g++ -O2 -std=c++17 main.cpp -o main.out && ./main.out',
   },
   rust: {
     label: 'Rust',
     badge: 'RS',
     ext: '.rs',
-    cmdHint: 'rustc -O main.rs -o main_rs.out && ./main_rs.out',
   },
   python: {
     label: 'Python 3',
     badge: 'PY',
     ext: '.py',
-    cmdHint: 'python3 -u main.py',
   },
   html: {
     label: 'HTML5',
     badge: 'HTML',
     ext: '.html',
-    cmdHint: 'Live DOM Sandbox <iframe sandbox="allow-scripts">',
   },
   json: {
     label: 'JSON',
     badge: 'JSON',
     ext: '.json',
-    cmdHint: 'JSON.parse(code) + JSON.stringify(obj, null, 2)',
   },
 };
 
@@ -95,18 +90,13 @@ export const TopBar: React.FC<TopBarProps> = ({
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-md shadow-indigo-500/20">
             <Code2 className="h-4 w-4 text-white" />
           </div>
-          <div className="hidden xl:block">
-            <div className="flex items-center gap-1.5">
-              <span className="text-sm font-extrabold tracking-tight text-white">
-                HiDeM
-              </span>
-              <span className="rounded-md bg-indigo-500/20 border border-indigo-400/30 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-300">
-                Desktop IDE
-              </span>
-            </div>
-            <p className="text-[10px] font-mono text-slate-400">
-              {LANGUAGE_META[language].cmdHint}
-            </p>
+          <div className="hidden sm:flex items-center gap-1.5">
+            <span className="text-sm font-extrabold tracking-tight text-white">
+              HiDeM
+            </span>
+            <span className="rounded-md bg-indigo-500/20 border border-indigo-400/30 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-300">
+              Desktop IDE
+            </span>
           </div>
         </div>
 
@@ -132,56 +122,50 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
       </div>
 
-      {/* Right: In-App File Actions, Templates, JSON Tools, Run All, Theme Settings, Native Window Controls */}
+      {/* Right: In-App File Actions, Templates & Snippets, JSON Tools, Run All, Theme Settings, Window Controls */}
       <div className="app-no-drag flex items-center gap-1.5">
-        {/* In-App File Operations (Ctrl+O / Ctrl+S) */}
+        {/* In-App File Operations (Hover shows Ctrl+O / Ctrl+S) */}
         <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-slate-900/70 p-1">
           <button
             type="button"
             onClick={onOpenFilesFromExplorer}
             className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-white/10 hover:text-white transition"
-            title="Open one or multiple files (Ctrl+O)"
+            title="Open File (Ctrl+O)"
           >
             <FolderOpen className="h-3.5 w-3.5 text-amber-400" />
             <span>Open</span>
-            <kbd className="hidden sm:inline rounded bg-white/10 px-1 py-0.5 text-[10px] font-mono text-slate-400">
-              Ctrl+O
-            </kbd>
           </button>
 
           <button
             type="button"
             onClick={onSaveFile}
             className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-white/10 hover:text-white transition"
-            title="Save active file (Ctrl+S)"
+            title="Save File (Ctrl+S)"
           >
             <Save className="h-3.5 w-3.5 text-sky-400" />
             <span>Save</span>
-            <kbd className="hidden sm:inline rounded bg-white/10 px-1 py-0.5 text-[10px] font-mono text-slate-400">
-              Ctrl+S
-            </kbd>
           </button>
 
           <button
             type="button"
             onClick={onSaveFileAs}
             className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-300 hover:bg-white/10 hover:text-white transition"
-            title="Save as a new file (Ctrl+Shift+S)"
+            title="Save As... (Ctrl+Shift+S)"
           >
             <FileDown className="h-3.5 w-3.5 text-indigo-300" />
             <span className="hidden md:inline">Save As...</span>
           </button>
         </div>
 
-        {/* Custom Code Templates Manager */}
+        {/* Custom Code Templates & User Snippets Manager */}
         <button
           type="button"
           onClick={onOpenTemplateModal}
           className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/15 px-3 py-1.5 text-xs font-medium text-slate-200 transition"
-          title="Edit or insert starter Code Templates"
+          title="Manage Starter Templates & Custom Snippets"
         >
           <FileCode2 className="h-3.5 w-3.5 text-indigo-400" />
-          <span>Templates</span>
+          <span>Templates & Snippets</span>
         </button>
 
         {language === 'json' && (
