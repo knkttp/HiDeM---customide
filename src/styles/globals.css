@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-image: url('https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=1920&q=85');
+  --bg-blur: 12px;
+  --blur-px: 12px;
+  --bg-opacity: 0.72;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body,
+html,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* 3-Layer Wallpaper & Blur Architecture (Z-Index Stacking) */
+.ide-wallpaper-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background-image: var(--bg-image);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  transition: background-image 0.3s ease;
+}
+
+.ide-backdrop-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  backdrop-filter: blur(var(--blur-px));
+  -webkit-backdrop-filter: blur(var(--blur-px));
+  background-color: rgba(10, 14, 23, var(--bg-opacity));
+  transition: backdrop-filter 0.08s linear, background-color 0.08s linear;
+}
+
+.ide-content-layer {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Transparent Monaco Editor Override to see through to Wallpaper */
+.monaco-editor,
+.monaco-editor-background,
+.monaco-editor .margin,
+.monaco-editor .inputarea.ime-input {
+  background-color: transparent !important;
+}
+
+/* Frameless Desktop Window Drag Regions */
+.app-drag-region {
+  -webkit-app-region: drag;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Custom sleek scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.35);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
+}

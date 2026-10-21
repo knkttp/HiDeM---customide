@@ -1,0 +1,41 @@
+{
+  "name": "hidem",
+  "private": true,
+  "version": "1.0.0",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:client": "vite",
+    "dev:server": "tsx watch src-backend/server.ts",
+    "build": "tsc && vite build",
+    "build:backend": "esbuild src-backend/server.ts --bundle --platform=node --format=cjs --outfile=dist-backend/server.cjs",
+    "build:exe": "npm run build && npm run build:backend && g++ -O2 -std=c++17 -static -mwindows launcher/main.cpp launcher/app.res -o HiDeM.exe -lws2_32 -lshell32 -lole32",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.6.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.1",
+    "lucide-react": "^0.454.0",
+    "monaco-editor": "^0.52.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.8.6",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.0",
+    "electron": "^44.9.1",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.14",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  }
+}

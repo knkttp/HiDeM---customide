@@ -1,0 +1,11 @@
+# Dependencies (exceeds GitHub 100MB limit if not ignored)
+node_modules/
+
+# Temporary compiled files
+src-backend/temp/*
+!src-backend/temp/.gitkeep
+
+# Logs & OS files
+*.log
+.DS_Store
+Thumbs.db
