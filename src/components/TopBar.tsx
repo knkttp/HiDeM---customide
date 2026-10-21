@@ -90,12 +90,9 @@ export const TopBar: React.FC<TopBarProps> = ({
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-md shadow-indigo-500/20">
             <Code2 className="h-4 w-4 text-white" />
           </div>
-          <div className="hidden sm:flex items-center gap-1.5">
+          <div className="hidden sm:flex items-center">
             <span className="text-sm font-extrabold tracking-tight text-white">
               HiDeM
-            </span>
-            <span className="rounded-md bg-indigo-500/20 border border-indigo-400/30 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-300">
-              Desktop IDE
             </span>
           </div>
         </div>
