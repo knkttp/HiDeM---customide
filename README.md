@@ -158,7 +158,7 @@ What `npm run build:exe` does under the hood:
 
 ---
 
-## 6. Common Extension Points for Future AI Models
+## 6. Common Extension Points for Future
 
 1. **Adding a New Programming Language (e.g., Java, Go, JavaScript):**
    - Add a new runner in `src-backend/runner/<lang>Runner.ts` using `runProcessWithInput` from `cppRunner.ts`.
