@@ -245,6 +245,20 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       saveCallbackRef.current();
     });
+
+    // Remove tooltip titles from find widget buttons to prevent hover flicker
+    const domNode = editor.getDomNode();
+    if (domNode) {
+      const observer = new MutationObserver(() => {
+        const findButtons = domNode.querySelectorAll('.find-widget .button, .find-widget input');
+        findButtons.forEach((btn) => {
+          if (btn.hasAttribute('title')) {
+            btn.removeAttribute('title');
+          }
+        });
+      });
+      observer.observe(domNode, { childList: true, subtree: true, attributes: true, attributeFilter: ['title'] });
+    }
   };
 
   useEffect(() => {
@@ -424,6 +438,12 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
               filterGraceful: false,
             },
             bracketPairColorization: { enabled: true },
+            find: {
+              addExtraSpaceOnTop: true,
+              autoFindInSelection: 'never',
+              seedSearchStringFromSelection: 'always',
+              loop: true,
+            },
             smoothScrolling: true,
             cursorBlinking: 'smooth',
             cursorSmoothCaretAnimation: 'on',
