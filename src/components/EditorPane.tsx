@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Editor, { OnMount } from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
-import { Plus, X, HardDrive, Edit3 } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { SupportedLanguage, LANGUAGE_META } from './TopBar';
 import { IdeThemeId } from './ThemeModal';
 import { CustomSnippet } from './TemplateModal';
@@ -22,11 +22,15 @@ interface EditorPaneProps {
   onAddTab: () => void;
   onCloseTab: (id: string) => void;
   onRenameTab: (id: string, newName: string) => void;
+  onReorderTabs?: (sourceId: string, targetId: string) => void;
   onChangeCode: (value: string) => void;
   onSaveShortcut: () => void;
   theme: IdeThemeId;
   statusMessage?: string | null;
   snippets: CustomSnippet[];
+  autoSaveEnabled?: boolean;
+  autoSaveStatus?: 'idle' | 'saving' | 'saved';
+  lastAutoSaveTime?: string | null;
 }
 
 // Code::Blocks style core C/C++ & STL identifiers (flat, lightweight, only triggered after typing >= 3 chars)
@@ -161,10 +165,11 @@ function registerCodeBlocksAndUserSnippets(
   }
   completionDisposables = [];
 
-  const languages: SupportedLanguage[] = ['cpp', 'rust', 'python', 'html', 'json'];
+  const languages: SupportedLanguage[] = ['cpp', 'rust', 'python', 'html', 'json', 'text'];
 
   for (const lang of languages) {
-    const disposable = monaco.languages.registerCompletionItemProvider(lang, {
+    const monacoLang = lang === 'text' ? 'plaintext' : lang;
+    const disposable = monaco.languages.registerCompletionItemProvider(monacoLang, {
       provideCompletionItems: (model, position) => {
         const word = model.getWordUntilPosition(position);
         const range = {
@@ -220,18 +225,25 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
   onAddTab,
   onCloseTab,
   onRenameTab,
+  onReorderTabs,
   onChangeCode,
   onSaveShortcut,
   theme,
   statusMessage,
   snippets,
+  autoSaveEnabled = true,
+  autoSaveStatus = 'idle',
+  lastAutoSaveTime,
 }) => {
   const monacoRef = useRef<typeof Monaco | null>(null);
   const saveCallbackRef = useRef(onSaveShortcut);
   saveCallbackRef.current = onSaveShortcut;
+  const addTabCallbackRef = useRef(onAddTab);
+  addTabCallbackRef.current = onAddTab;
 
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
+  const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
 
@@ -241,9 +253,12 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
     registerCodeBlocksAndUserSnippets(monaco, snippets);
     monaco.editor.setTheme(theme);
 
-    // Bind Ctrl+S / Cmd+S inside Monaco Editor
+    // Bind Ctrl+S / Cmd+S and Ctrl+N / Cmd+N inside Monaco Editor
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       saveCallbackRef.current();
+    });
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyN, () => {
+      addTabCallbackRef.current();
     });
 
     // Remove tooltip titles from find widget buttons to prevent hover flicker
@@ -291,18 +306,43 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
       <div className="flex items-center border-b border-white/10 bg-slate-950/65 px-2 pt-1.5 gap-1 overflow-x-auto">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTab?.id;
+          const isDragged = draggedTabId === tab.id;
           const badge = LANGUAGE_META[tab.language]?.badge || 'CODE';
           return (
             <div
               key={tab.id}
+              draggable={editingTabId !== tab.id}
+              onDragStart={(e) => {
+                setDraggedTabId(tab.id);
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', tab.id);
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                if (draggedTabId && draggedTabId !== tab.id) {
+                  onReorderTabs?.(draggedTabId, tab.id);
+                }
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const srcId = draggedTabId || e.dataTransfer.getData('text/plain');
+                if (srcId && srcId !== tab.id) {
+                  onReorderTabs?.(srcId, tab.id);
+                }
+                setDraggedTabId(null);
+              }}
+              onDragEnd={() => setDraggedTabId(null)}
               onClick={() => onSelectTab(tab.id)}
               onDoubleClick={() => startRename(tab)}
               title={
                 tab.filePath
-                  ? `${tab.filePath} (Double-click to rename tab)`
-                  : `${tab.name} (Unsaved — Double-click to rename tab)`
+                  ? `${tab.filePath} (Drag to reorder • Double-click to rename)`
+                  : `${tab.name} (Drag to reorder • Double-click to rename)`
               }
-              className={`group flex items-center gap-2 rounded-t-xl border-t border-x px-3 py-1.5 text-xs cursor-pointer transition select-none flex-shrink-0 ${
+              className={`group flex items-center gap-2 rounded-t-xl border-t border-x px-3 py-1.5 text-xs cursor-grab active:cursor-grabbing transition select-none flex-shrink-0 ${
+                isDragged ? 'opacity-50 scale-[0.98] ' : ''
+              }${
                 isActive
                   ? 'border-indigo-500/50 bg-slate-900/90 text-white shadow-sm'
                   : 'border-transparent bg-slate-950/40 text-slate-400 hover:bg-slate-900/50 hover:text-slate-200'
@@ -350,6 +390,16 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
+                    try {
+                      if (monacoRef.current) {
+                        const model = monacoRef.current.editor.getModel(
+                          monacoRef.current.Uri.parse(tab.id)
+                        );
+                        model?.dispose();
+                      }
+                    } catch {
+                      // ignore
+                    }
                     onCloseTab(tab.id);
                   }}
                   className="rounded p-0.5 text-slate-500 opacity-60 hover:bg-rose-500/25 hover:text-rose-300 group-hover:opacity-100 transition"
@@ -366,36 +416,35 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
         <button
           type="button"
           onClick={onAddTab}
-          className="ml-1 mb-1 flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 hover:bg-indigo-600/30 hover:border-indigo-500/40 px-2.5 py-1 text-xs font-medium text-slate-300 hover:text-white transition flex-shrink-0"
-          title="Create a new file tab"
+          className="ml-0.5 mb-1 flex items-center justify-center rounded-lg border border-white/10 bg-white/5 hover:bg-indigo-600/30 hover:border-indigo-500/40 p-1 text-slate-300 hover:text-white transition flex-shrink-0"
+          title="New File"
         >
           <Plus className="h-3.5 w-3.5" />
-          <span>New File</span>
         </button>
-      </div>
 
-      {/* Clean File Path Subheader */}
-      <div className="flex items-center justify-between border-b border-white/10 bg-slate-950/45 px-4 py-1 text-[11px] text-slate-400">
-        <div className="flex items-center gap-2 min-w-0">
-          <HardDrive className="h-3.5 w-3.5 text-indigo-400 flex-shrink-0" />
-          <span className="font-mono text-slate-300 truncate">
-            {activeTab?.filePath || activeTab?.name || 'untitled'}
-          </span>
-          <button
-            type="button"
-            onClick={() => activeTab && startRename(activeTab)}
-            className="text-slate-500 hover:text-indigo-300 transition"
-            title="Rename tab"
-          >
-            <Edit3 className="h-3 w-3" />
-          </button>
+        {/* Minimal right-aligned status indicator */}
+        <div className="ml-auto mb-1 pr-2 flex items-center gap-2 flex-shrink-0">
+          {statusMessage ? (
+            <span className="text-[11px] font-medium text-emerald-400">{statusMessage}</span>
+          ) : (
+            autoSaveEnabled && (
+              <span
+                className={`h-2 w-2 rounded-full transition ${
+                  autoSaveStatus === 'saving' || activeTab?.isDirty
+                    ? 'bg-amber-400 animate-pulse'
+                    : 'bg-emerald-400/70'
+                }`}
+                title={
+                  autoSaveStatus === 'saving' || activeTab?.isDirty
+                    ? 'Saving...'
+                    : lastAutoSaveTime
+                    ? `Saved (${lastAutoSaveTime})`
+                    : 'Auto-save ON'
+                }
+              />
+            )
+          )}
         </div>
-
-        {statusMessage && (
-          <div className="flex items-center flex-shrink-0">
-            <span className="font-medium text-emerald-400">{statusMessage}</span>
-          </div>
-        )}
       </div>
 
       {/* Monaco Container (Code::Blocks style lightweight completion) */}
@@ -403,7 +452,7 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
         <Editor
           path={activeTab?.id}
           height="100%"
-          language={activeTab?.language || 'cpp'}
+          language={activeTab?.language === 'text' ? 'plaintext' : activeTab?.language || 'cpp'}
           value={activeTab?.code || ''}
           theme={theme}
           onMount={handleEditorMount}
@@ -430,6 +479,13 @@ export const EditorPane: React.FC<EditorPaneProps> = ({
             parameterHints: { enabled: false },
             hover: { enabled: false },
             inlineSuggest: { enabled: false },
+            links: false,
+            colorDecorators: false,
+            codeLens: false,
+            folding: false,
+            occurrencesHighlight: 'off',
+            selectionHighlight: false,
+            renderValidationDecorations: 'off',
             snippetSuggestions: 'top',
             suggest: {
               showIcons: false,

@@ -57,6 +57,18 @@ interface HidemDesktopBridge {
     filePath: string;
     content: string;
   }) => Promise<{ saved: boolean; filePath: string; name: string }>;
+  backupWorkspaceFile?: (payload: {
+    name: string;
+    content: string;
+  }) => Promise<{ saved: boolean; filePath?: string }>;
+  executeCode?: (payload: {
+    language: SupportedLanguage;
+    code: string;
+    testCases: { id: string; input: string; expectedOutput: string }[];
+  }) => Promise<{
+    compileError?: string;
+    results: { id: string; actualOutput: string; status: TestCase['status']; timeMs?: number }[];
+  }>;
 }
 
 declare global {
@@ -74,6 +86,7 @@ const STORAGE_KEYS = {
   TABS: 'custom_ide_open_tabs_v2',
   ACTIVE_TAB_ID: 'custom_ide_active_tab_id_v2',
   TEST_CASES: 'custom_ide_test_cases_v1',
+  AUTO_SAVE: 'custom_ide_auto_save_v1',
 };
 
 export const FACTORY_CODE_TEMPLATES: Record<SupportedLanguage, string> = {
@@ -176,6 +189,7 @@ if __name__ == "__main__":
     "nativeFramelessDesktop": true
   }
 }`,
+  text: '',
 };
 
 const DEFAULT_TEST_CASES: TestCase[] = [
@@ -226,6 +240,12 @@ const FILE_PICKER_TYPES_BY_LANG: Record<SupportedLanguage, FilePickerAcceptType[
       accept: { 'application/json': ['.json'] },
     },
   ],
+  text: [
+    {
+      description: 'Plain Text Files',
+      accept: { 'text/plain': ['.txt', '.in', '.out', '.md'] },
+    },
+  ],
 };
 
 function detectLangByFilename(name: string, fallback: SupportedLanguage): SupportedLanguage {
@@ -235,6 +255,7 @@ function detectLangByFilename(name: string, fallback: SupportedLanguage): Suppor
   if (lower.endsWith('.py')) return 'python';
   if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'html';
   if (lower.endsWith('.json')) return 'json';
+  if (lower.endsWith('.txt') || lower.endsWith('.in') || lower.endsWith('.out') || lower.endsWith('.md')) return 'text';
   return fallback;
 }
 
@@ -337,15 +358,30 @@ export const App: React.FC = () => {
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+  const [isNewFileModalOpen, setIsNewFileModalOpen] = useState(false);
+  const [newFileCustomName, setNewFileCustomName] = useState('');
   const [isRunning, setIsRunning] = useState(false);
   const [compileError, setCompileError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  // 5. Auto-Save State (Default: ON)
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.AUTO_SAVE);
+      if (saved !== null) return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+    return true;
+  });
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [lastAutoSaveTime, setLastAutoSaveTime] = useState<string | null>(null);
 
   const flashStatus = useCallback((msg: string) => {
     setStatusMessage(msg);
     setTimeout(() => {
       setStatusMessage((prev) => (prev === msg ? null : prev));
-    }, 3200);
+    }, 2000);
   }, []);
 
   // Sync CSS Variables for 3-layer Wallpaper & Backdrop Blur
@@ -372,7 +408,10 @@ export const App: React.FC = () => {
   }, [snippets]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.TABS, JSON.stringify(tabs));
+    const timer = setTimeout(() => {
+      localStorage.setItem(STORAGE_KEYS.TABS, JSON.stringify(tabs));
+    }, 400);
+    return () => clearTimeout(timer);
   }, [tabs]);
 
   useEffect(() => {
@@ -384,6 +423,80 @@ export const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.TEST_CASES, JSON.stringify(testCases));
   }, [testCases]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.AUTO_SAVE, JSON.stringify(autoSaveEnabled));
+  }, [autoSaveEnabled]);
+
+  // Core Auto-Save Flush Function
+  const flushAutoSave = useCallback(async (currentTabs: CodeFileTab[]) => {
+    const dirtyTabs = currentTabs.filter((t) => t.isDirty);
+    if (dirtyTabs.length === 0) return;
+
+    setAutoSaveStatus('saving');
+
+    for (const tab of dirtyTabs) {
+      try {
+        if (window.hidemDesktop?.isElectron && tab.filePath) {
+          await window.hidemDesktop.saveFileDirect({
+            filePath: tab.filePath,
+            content: tab.code,
+          });
+        } else {
+          const existingHandle = fileHandlesRef.current.get(tab.id);
+          if (existingHandle) {
+            const writable = await existingHandle.createWritable();
+            await writable.write(tab.code);
+            await writable.close();
+          } else if (window.hidemDesktop?.backupWorkspaceFile) {
+            await window.hidemDesktop.backupWorkspaceFile({
+              name: tab.name,
+              content: tab.code,
+            });
+          }
+        }
+      } catch {
+        // ignore background auto-save write errors
+      }
+    }
+
+    const nowStr = new Date().toLocaleTimeString('vi-VN', { hour12: false });
+    setTabs((prev) =>
+      prev.map((t) => (t.isDirty ? { ...t, isDirty: false } : t))
+    );
+    setLastAutoSaveTime(nowStr);
+    setAutoSaveStatus('saved');
+  }, []);
+
+  // Debounced Auto-Save after 700ms of typing inactivity
+  useEffect(() => {
+    if (!autoSaveEnabled) return;
+    const hasDirty = tabs.some((t) => t.isDirty);
+    if (!hasDirty) return;
+
+    setAutoSaveStatus('saving');
+    const timer = setTimeout(() => {
+      flushAutoSave(tabs);
+    }, 700);
+
+    return () => clearTimeout(timer);
+  }, [tabs, autoSaveEnabled, flushAutoSave]);
+
+  // Flush Auto-Save immediately when window loses focus
+  useEffect(() => {
+    if (!autoSaveEnabled) return;
+    const onWindowBlur = () => {
+      if (tabs.some((t) => t.isDirty)) {
+        flushAutoSave(tabs);
+      }
+    };
+    window.addEventListener('blur', onWindowBlur);
+    return () => window.removeEventListener('blur', onWindowBlur);
+  }, [tabs, autoSaveEnabled, flushAutoSave]);
+
+  const handleToggleAutoSave = useCallback(() => {
+    setAutoSaveEnabled((prev) => !prev);
+  }, []);
 
   // Tab Operations
   const handleCodeChange = (nextCode: string) => {
@@ -415,21 +528,37 @@ export const App: React.FC = () => {
     setActiveTabId(newId);
   };
 
-  const handleAddTab = () => {
-    const ext = LANGUAGE_META[language].ext;
-    const sameLangCount = tabs.filter((t) => t.language === language).length + 1;
-    const newId = `tab-${language}-${Date.now()}`;
-    const newTab: CodeFileTab = {
-      id: newId,
-      name: `file_${sameLangCount}${ext}`,
-      language,
-      code: customTemplates[language] ?? FACTORY_CODE_TEMPLATES[language],
-      isDirty: false,
-    };
-    setTabs((prev) => [...prev, newTab]);
-    setActiveTabId(newId);
-    flashStatus(`Created new tab: ${newTab.name}`);
-  };
+  const handleCreateTabWithLang = useCallback(
+    (selectedLang: SupportedLanguage, customName?: string) => {
+      const ext = LANGUAGE_META[selectedLang].ext;
+      const sameLangCount = tabs.filter((t) => t.language === selectedLang).length + 1;
+      const newId = `tab-${selectedLang}-${Date.now()}`;
+      const trimmed = (customName ?? newFileCustomName).trim();
+      let finalName = trimmed || `file_${sameLangCount}${ext}`;
+      if (trimmed && !trimmed.includes('.')) {
+        finalName = `${trimmed}${ext}`;
+      }
+      const detectedLang = trimmed ? detectLangByFilename(finalName, selectedLang) : selectedLang;
+
+      const newTab: CodeFileTab = {
+        id: newId,
+        name: finalName,
+        language: detectedLang,
+        code: customTemplates[detectedLang] ?? FACTORY_CODE_TEMPLATES[detectedLang] ?? '',
+        isDirty: false,
+      };
+      setTabs((prev) => [...prev, newTab]);
+      setActiveTabId(newId);
+      setIsNewFileModalOpen(false);
+      setNewFileCustomName('');
+    },
+    [tabs, newFileCustomName, customTemplates]
+  );
+
+  const handleAddTab = useCallback(() => {
+    setNewFileCustomName('');
+    setIsNewFileModalOpen(true);
+  }, []);
 
   const handleCloseTab = (id: string) => {
     if (tabs.length <= 1) return;
@@ -451,6 +580,19 @@ export const App: React.FC = () => {
         return { ...t, name: newName, language: detectedLang };
       })
     );
+  };
+
+  const handleReorderTabs = (sourceId: string, targetId: string) => {
+    if (sourceId === targetId) return;
+    setTabs((prev) => {
+      const sourceIdx = prev.findIndex((t) => t.id === sourceId);
+      const targetIdx = prev.findIndex((t) => t.id === targetId);
+      if (sourceIdx === -1 || targetIdx === -1) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(sourceIdx, 1);
+      next.splice(targetIdx, 0, moved);
+      return next;
+    });
   };
 
   // In-App Modal Open File Picker (Ctrl + O)
@@ -668,7 +810,11 @@ export const App: React.FC = () => {
       if (!isCtrlOrCmd) return;
 
       const key = e.key.toLowerCase();
-      if (key === 'o') {
+      if (key === 'n') {
+        e.preventDefault();
+        e.stopPropagation();
+        handleAddTab();
+      } else if (key === 'o') {
         e.preventDefault();
         e.stopPropagation();
         handleOpenFilesFromExplorer();
@@ -685,7 +831,7 @@ export const App: React.FC = () => {
 
     window.addEventListener('keydown', onKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
-  }, [handleOpenFilesFromExplorer, handleSaveFile, handleSaveFileAs]);
+  }, [handleAddTab, handleOpenFilesFromExplorer, handleSaveFile, handleSaveFileAs]);
 
   // Apply Template to Current Tab
   const handleApplyTemplateToActiveTab = (lang: SupportedLanguage, templateCode: string) => {
@@ -743,7 +889,11 @@ export const App: React.FC = () => {
   };
 
   const handleRunAll = async () => {
-    if (language === 'html') return;
+    if (autoSaveEnabled && tabs.some((t) => t.isDirty)) {
+      await flushAutoSave(tabs);
+    }
+
+    if (language === 'html' || language === 'text') return;
 
     if (language === 'json') {
       handleJsonTransform('prettify');
@@ -755,25 +905,28 @@ export const App: React.FC = () => {
     setTestCases((prev) => prev.map((tc) => ({ ...tc, status: 'RUNNING' })));
 
     try {
-      const response = await fetch('/api/execute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          language,
-          code: currentCode,
-          testCases: testCases.map((tc) => ({
-            id: tc.id,
-            input: tc.input,
-            expectedOutput: tc.expectedOutput,
-          })),
-        }),
-      });
+      const payload = {
+        language,
+        code: currentCode,
+        testCases: testCases.map((tc) => ({
+          id: tc.id,
+          input: tc.input,
+          expectedOutput: tc.expectedOutput,
+        })),
+      };
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Compiler server error');
-      }
+      const data = window.hidemDesktop?.executeCode
+        ? await window.hidemDesktop.executeCode(payload)
+        : await (async () => {
+            const response = await fetch('/api/execute', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            const json = await response.json();
+            if (!response.ok) throw new Error(json.error || 'Compiler server error');
+            return json;
+          })();
 
       if (data.compileError) {
         setCompileError(data.compileError);
@@ -808,6 +961,130 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleRunSingleTestCase = async (targetId: string) => {
+    if (autoSaveEnabled && tabs.some((t) => t.isDirty)) {
+      await flushAutoSave(tabs);
+    }
+
+    if (language === 'html' || language === 'text') return;
+
+    if (language === 'json') {
+      handleJsonTransform('prettify');
+      return;
+    }
+
+    const targetTc = testCases.find((tc) => tc.id === targetId);
+    if (!targetTc) return;
+
+    setCompileError(null);
+    setTestCases((prev) =>
+      prev.map((tc) => (tc.id === targetId ? { ...tc, status: 'RUNNING' } : tc))
+    );
+
+    try {
+      const payload = {
+        language,
+        code: currentCode,
+        testCases: [
+          {
+            id: targetTc.id,
+            input: targetTc.input,
+            expectedOutput: targetTc.expectedOutput,
+          },
+        ],
+      };
+
+      const data = window.hidemDesktop?.executeCode
+        ? await window.hidemDesktop.executeCode(payload)
+        : await (async () => {
+            const response = await fetch('/api/execute', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+            const json = await response.json();
+            if (!response.ok) throw new Error(json.error || 'Compiler server error');
+            return json;
+          })();
+
+      if (data.compileError) {
+        setCompileError(data.compileError);
+      }
+
+      if (Array.isArray(data.results)) {
+        const found = data.results.find((r: { id: string }) => r.id === targetId);
+        if (found) {
+          setTestCases((prev) =>
+            prev.map((tc) =>
+              tc.id === targetId
+                ? {
+                    ...tc,
+                    actualOutput: found.actualOutput ?? '',
+                    status: found.status ?? 'IDLE',
+                    timeMs: found.timeMs,
+                  }
+                : tc
+            )
+          );
+        }
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setCompileError(`Cannot connect to Backend (/api/execute): ${errMsg}`);
+      setTestCases((prev) =>
+        prev.map((tc) =>
+          tc.id === targetId
+            ? {
+                ...tc,
+                actualOutput: errMsg,
+                status: 'RE',
+              }
+            : tc
+        )
+      );
+    }
+  };
+
+  const handleExecuteSingleCode = useCallback(
+    async (targetLang: SupportedLanguage, targetCode: string, input: string) => {
+      try {
+        const payload = {
+          language: targetLang,
+          code: targetCode,
+          testCases: [{ id: 'cmp-1', input, expectedOutput: '' }],
+        };
+        const data = window.hidemDesktop?.executeCode
+          ? await window.hidemDesktop.executeCode(payload)
+          : await (async () => {
+              const response = await fetch('/api/execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              });
+              const json = await response.json();
+              if (!response.ok) throw new Error(json.error || 'Compiler server error');
+              return json;
+            })();
+
+        const first = data.results?.[0];
+        return {
+          actualOutput: first?.actualOutput ?? data.compileError ?? '',
+          status: (first?.status ?? (data.compileError ? 'RE' : 'IDLE')) as TestCase['status'],
+          timeMs: first?.timeMs,
+          compileError: data.compileError,
+        };
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        return {
+          actualOutput: errMsg,
+          status: 'RE' as const,
+          compileError: errMsg,
+        };
+      }
+    },
+    []
+  );
+
   return (
     <div className="relative h-screen w-screen overflow-hidden select-text border border-white/10">
       {/* Layer 1 (z-index: 0): Wallpaper Image */}
@@ -831,6 +1108,8 @@ export const App: React.FC = () => {
           onOpenFilesFromExplorer={handleOpenFilesFromExplorer}
           onSaveFile={handleSaveFile}
           onSaveFileAs={handleSaveFileAs}
+          autoSaveEnabled={autoSaveEnabled}
+          onToggleAutoSave={handleToggleAutoSave}
         />
 
         {/* Split Workspace: Left Multi-Tab Monaco Editor | Right Multi-TestCase Judge / HTML Live Sandbox */}
@@ -840,17 +1119,24 @@ export const App: React.FC = () => {
               tabs={tabs}
               activeTabId={activeTab?.id || ''}
               onSelectTab={(id) => {
+                if (autoSaveEnabled && tabs.some((t) => t.isDirty)) {
+                  flushAutoSave(tabs);
+                }
                 setActiveTabId(id);
                 setCompileError(null);
               }}
               onAddTab={handleAddTab}
               onCloseTab={handleCloseTab}
               onRenameTab={handleRenameTab}
+              onReorderTabs={handleReorderTabs}
               onChangeCode={handleCodeChange}
               onSaveShortcut={handleSaveFile}
               theme={themeConfig.theme}
               statusMessage={statusMessage}
               snippets={snippets}
+              autoSaveEnabled={autoSaveEnabled}
+              autoSaveStatus={autoSaveStatus}
+              lastAutoSaveTime={lastAutoSaveTime}
             />
           </section>
 
@@ -858,13 +1144,86 @@ export const App: React.FC = () => {
             <TestCasePane
               language={language}
               code={currentCode}
+              tabs={tabs}
+              activeTabId={activeTab?.id || ''}
               testCases={testCases}
               onChangeTestCases={setTestCases}
+              onRunSingleTestCase={handleRunSingleTestCase}
+              onExecuteSingleCode={handleExecuteSingleCode}
               compileError={compileError}
             />
           </section>
         </main>
       </div>
+
+      {/* New File Picker Modal (Ctrl + N) */}
+      {isNewFileModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setIsNewFileModalOpen(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setIsNewFileModalOpen(false);
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-white/15 bg-slate-900/95 p-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                New File (Ctrl+N)
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsNewFileModalOpen(false)}
+                className="rounded-lg px-2 py-0.5 text-xs text-slate-400 hover:bg-white/10 hover:text-white transition"
+              >
+                Esc
+              </button>
+            </div>
+
+            <input
+              type="text"
+              autoFocus
+              value={newFileCustomName}
+              onChange={(e) => setNewFileCustomName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleCreateTabWithLang(language, newFileCustomName);
+                } else if (e.key === 'Escape') {
+                  setIsNewFileModalOpen(false);
+                }
+              }}
+              placeholder="Tên file tùy chọn (VD: bai1, input.txt)... hoặc chọn loại bên dưới"
+              className="mb-3 w-full rounded-xl border border-white/10 bg-slate-950/90 px-3 py-2 font-mono text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
+            />
+
+            <div className="grid grid-cols-3 gap-2">
+              {(Object.keys(LANGUAGE_META) as SupportedLanguage[]).map((langKey) => {
+                const meta = LANGUAGE_META[langKey];
+                const isCurrent = langKey === language;
+                return (
+                  <button
+                    key={langKey}
+                    type="button"
+                    onClick={() => handleCreateTabWithLang(langKey, newFileCustomName)}
+                    className={`flex flex-col items-center justify-center gap-1 rounded-xl border p-3 transition ${
+                      isCurrent
+                        ? 'border-indigo-500/60 bg-indigo-600/20 text-white hover:bg-indigo-600/35'
+                        : 'border-white/10 bg-slate-950/60 text-slate-300 hover:border-indigo-400/50 hover:bg-white/10 hover:text-white'
+                    }`}
+                  >
+                    <span className="rounded bg-indigo-500/20 px-2 py-0.5 font-mono text-[11px] font-bold text-indigo-300">
+                      {meta.ext}
+                    </span>
+                    <span className="text-xs font-semibold">{meta.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Wallpaper Blur & Theme Modal */}
       <ThemeModal
