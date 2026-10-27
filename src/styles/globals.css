@@ -9,8 +9,9 @@
   --bg-opacity: 0.72;
 }
 
-* {
+*, *::before, *::after {
   box-sizing: border-box;
+  border-radius: 0 !important;
 }
 
 body,
@@ -76,7 +77,7 @@ html,
 .monaco-editor .find-widget {
   top: 10px !important;
   right: 24px !important;
-  border-radius: 10px !important;
+  border-radius: 0 !important;
   border: 1px solid rgba(255, 255, 255, 0.15) !important;
   background-color: #1e1e24 !important;
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.6) !important;
@@ -98,7 +99,7 @@ div[class*="monaco-hover"] {
 /* Stable find widget buttons */
 .monaco-editor .find-widget .button {
   cursor: pointer !important;
-  border-radius: 4px !important;
+  border-radius: 0 !important;
 }
 
 .monaco-editor .find-widget .button:hover {
@@ -122,7 +123,7 @@ div[class*="monaco-hover"] {
 
 ::-webkit-scrollbar-thumb {
   background: rgba(148, 163, 184, 0.35);
-  border-radius: 9999px;
+  border-radius: 0 !important;
 }
 
 ::-webkit-scrollbar-thumb:hover {

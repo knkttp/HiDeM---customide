@@ -2,8 +2,6 @@ import React from 'react';
 import {
   Play,
   Settings,
-  Code2,
-  Sparkles,
   Minimize2,
   AlignLeft,
   Loader2,
@@ -15,16 +13,16 @@ import {
   Square,
   X,
 } from 'lucide-react';
-import { IdeThemeId, IDE_THEMES } from './ThemeModal';
+import { IdeThemeId } from './ThemeModal';
 
-export type SupportedLanguage = 'cpp' | 'rust' | 'python' | 'html' | 'json';
+export type SupportedLanguage = 'cpp' | 'rust' | 'python' | 'html' | 'json' | 'text';
 
 export const LANGUAGE_META: Record<
   SupportedLanguage,
   { label: string; badge: string; ext: string }
 > = {
   cpp: {
-    label: 'C++17',
+    label: 'C++',
     badge: 'C++',
     ext: '.cpp',
   },
@@ -34,12 +32,12 @@ export const LANGUAGE_META: Record<
     ext: '.rs',
   },
   python: {
-    label: 'Python 3',
+    label: 'Python',
     badge: 'PY',
     ext: '.py',
   },
   html: {
-    label: 'HTML5',
+    label: 'HTML',
     badge: 'HTML',
     ext: '.html',
   },
@@ -47,6 +45,11 @@ export const LANGUAGE_META: Record<
     label: 'JSON',
     badge: 'JSON',
     ext: '.json',
+  },
+  text: {
+    label: 'Text',
+    badge: 'TXT',
+    ext: '.txt',
   },
 };
 
@@ -63,106 +66,97 @@ interface TopBarProps {
   onOpenFilesFromExplorer: () => void;
   onSaveFile: () => void;
   onSaveFileAs: () => void;
+  autoSaveEnabled: boolean;
+  onToggleAutoSave: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
   language,
-  onLanguageChange,
   onRunAll,
   isRunning,
   onOpenSettings,
-  currentTheme,
   onJsonPrettify,
   onJsonMinify,
   onOpenTemplateModal,
   onOpenFilesFromExplorer,
   onSaveFile,
   onSaveFileAs,
+  autoSaveEnabled,
+  onToggleAutoSave,
 }) => {
-  const themeObj = IDE_THEMES.find((t) => t.id === currentTheme);
   const desktopApi = typeof window !== 'undefined' ? window.hidemDesktop : undefined;
 
   return (
-    <header className="app-drag-region flex flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-slate-950/75 pl-4 pr-2 py-2 backdrop-blur-md select-none">
-      {/* Left: Brand & Language Selector */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-md shadow-indigo-500/20">
-            <Code2 className="h-4 w-4 text-white" />
-          </div>
-          <div className="hidden sm:flex items-center">
-            <span className="text-sm font-extrabold tracking-tight text-white">
-              HiDeM
-            </span>
-          </div>
-        </div>
-
-        {/* Language Pills */}
-        <div className="app-no-drag flex items-center gap-1 rounded-xl border border-white/10 bg-slate-900/75 p-1">
-          {(Object.keys(LANGUAGE_META) as SupportedLanguage[]).map((langKey) => {
-            const active = language === langKey;
-            return (
-              <button
-                key={langKey}
-                type="button"
-                onClick={() => onLanguageChange(langKey)}
-                className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
-                  active
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                }`}
-              >
-                {LANGUAGE_META[langKey].label}
-              </button>
-            );
-          })}
-        </div>
+    <header className="app-drag-region flex items-center justify-between gap-2 border-b border-white/10 bg-slate-950/75 pl-4 pr-2 py-1.5 backdrop-blur-md select-none">
+      {/* Left: Brand Title */}
+      <div className="flex items-center">
+        <span className="text-xs font-extrabold tracking-wider text-slate-200">
+          HiDeM
+        </span>
       </div>
 
-      {/* Right: In-App File Actions, Templates & Snippets, JSON Tools, Run All, Theme Settings, Window Controls */}
-      <div className="app-no-drag flex items-center gap-1.5">
-        {/* In-App File Operations (Hover shows Ctrl+O / Ctrl+S) */}
-        <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-slate-900/70 p-1">
+      {/* Right: Minimal Icon Controls */}
+      <div className="app-no-drag flex items-center gap-1">
+        {/* Compact File Group */}
+        <div className="flex items-center gap-0.5 rounded-lg border border-white/10 bg-slate-900/70 p-0.5">
           <button
             type="button"
             onClick={onOpenFilesFromExplorer}
-            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-white/10 hover:text-white transition"
-            title="Open File (Ctrl+O)"
+            className="rounded-md p-1.5 text-slate-300 hover:bg-white/10 hover:text-white transition"
+            title="Open (Ctrl+O)"
           >
             <FolderOpen className="h-3.5 w-3.5 text-amber-400" />
-            <span>Open</span>
           </button>
 
           <button
             type="button"
             onClick={onSaveFile}
-            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-white/10 hover:text-white transition"
-            title="Save File (Ctrl+S)"
+            className="rounded-md p-1.5 text-slate-300 hover:bg-white/10 hover:text-white transition"
+            title="Save (Ctrl+S)"
           >
             <Save className="h-3.5 w-3.5 text-sky-400" />
-            <span>Save</span>
           </button>
 
           <button
             type="button"
             onClick={onSaveFileAs}
-            className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-300 hover:bg-white/10 hover:text-white transition"
-            title="Save As... (Ctrl+Shift+S)"
+            className="rounded-md p-1.5 text-slate-300 hover:bg-white/10 hover:text-white transition"
+            title="Save As (Ctrl+Shift+S)"
           >
             <FileDown className="h-3.5 w-3.5 text-indigo-300" />
-            <span className="hidden md:inline">Save As...</span>
+          </button>
+
+          <div className="h-3.5 w-px bg-white/10 mx-0.5" />
+
+          <button
+            type="button"
+            onClick={onToggleAutoSave}
+            className={`flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium transition ${
+              autoSaveEnabled
+                ? 'bg-emerald-500/15 text-emerald-300'
+                : 'text-slate-500 hover:text-slate-300'
+            }`}
+            title={autoSaveEnabled ? 'Auto Save: ON' : 'Auto Save: OFF'}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full transition ${
+                autoSaveEnabled
+                  ? 'bg-emerald-400 shadow-[0_0_5px_rgba(52,211,153,0.9)]'
+                  : 'bg-slate-600'
+              }`}
+            />
+            <span>Auto</span>
           </button>
         </div>
 
-        {/* Custom Code Templates & User Snippets Manager */}
+        {/* Templates & Snippets (Icon-only) */}
         <button
           type="button"
           onClick={onOpenTemplateModal}
-          className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/15 px-3 py-1.5 text-xs font-medium text-slate-200 transition"
-          title="Manage Starter Templates & Custom Snippets"
+          className="rounded-lg border border-white/10 bg-white/5 hover:bg-white/15 p-1.5 text-slate-300 hover:text-white transition"
+          title="Templates & Snippets"
         >
           <FileCode2 className="h-3.5 w-3.5 text-indigo-400" />
-          <span>Templates & Snippets</span>
         </button>
 
         {language === 'json' && (
@@ -170,20 +164,18 @@ export const TopBar: React.FC<TopBarProps> = ({
             <button
               type="button"
               onClick={onJsonPrettify}
-              className="flex items-center gap-1 rounded-xl border border-emerald-500/30 bg-emerald-500/15 hover:bg-emerald-500/25 px-2.5 py-1.5 text-xs font-medium text-emerald-300 transition"
-              title="Format JSON with 2-space indentation"
+              className="rounded-lg border border-emerald-500/30 bg-emerald-500/15 hover:bg-emerald-500/25 p-1.5 text-emerald-300 transition"
+              title="Prettify JSON"
             >
               <AlignLeft className="h-3.5 w-3.5" />
-              Prettify
             </button>
             <button
               type="button"
               onClick={onJsonMinify}
-              className="flex items-center gap-1 rounded-xl border border-amber-500/30 bg-amber-500/15 hover:bg-amber-500/25 px-2.5 py-1.5 text-xs font-medium text-amber-300 transition"
-              title="Minify JSON into a single line"
+              className="rounded-lg border border-amber-500/30 bg-amber-500/15 hover:bg-amber-500/25 p-1.5 text-amber-300 transition"
+              title="Minify JSON"
             >
               <Minimize2 className="h-3.5 w-3.5" />
-              Minify
             </button>
           </div>
         )}
@@ -192,39 +184,33 @@ export const TopBar: React.FC<TopBarProps> = ({
           type="button"
           onClick={onRunAll}
           disabled={isRunning}
-          className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 disabled:opacity-50 px-3.5 py-1.5 text-xs font-semibold text-white shadow-lg shadow-emerald-600/25 transition"
+          className="flex items-center gap-1 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 disabled:opacity-50 px-3 py-1 text-xs font-semibold text-white shadow-md shadow-emerald-600/20 transition"
+          title="Run Code"
         >
           {isRunning ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Running...
-            </>
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
           ) : (
-            <>
-              <Play className="h-4 w-4 fill-current" />
-              Run All
-            </>
+            <Play className="h-3.5 w-3.5 fill-current" />
           )}
+          <span>Run</span>
         </button>
 
         <button
           type="button"
           onClick={onOpenSettings}
-          className="flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/5 hover:bg-white/15 px-3 py-1.5 text-xs font-medium text-slate-200 transition"
-          title="Configure Wallpaper, Backdrop Blur & Code Theme"
+          className="rounded-lg border border-white/10 bg-white/5 hover:bg-white/15 p-1.5 text-slate-300 hover:text-white transition"
+          title="Theme & Wallpaper"
         >
-          <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
-          <span className="hidden 2xl:inline">{themeObj?.name || 'Theme'}</span>
-          <Settings className="h-3.5 w-3.5 text-slate-400" />
+          <Settings className="h-3.5 w-3.5 text-slate-300" />
         </button>
 
-        {/* Native Frameless Desktop Window Controls (Minimize / Maximize / Close) */}
+        {/* Native Frameless Desktop Window Controls */}
         {desktopApi?.isElectron && (
-          <div className="flex items-center ml-2 pl-2 border-l border-white/10">
+          <div className="flex items-center ml-1 pl-1 border-l border-white/10">
             <button
               type="button"
               onClick={() => desktopApi.minimizeWindow()}
-              className="rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-white transition"
+              className="rounded-md p-1.5 text-slate-400 hover:bg-white/10 hover:text-white transition"
               title="Minimize"
             >
               <Minus className="h-3.5 w-3.5" />
@@ -232,16 +218,16 @@ export const TopBar: React.FC<TopBarProps> = ({
             <button
               type="button"
               onClick={() => desktopApi.toggleMaximizeWindow()}
-              className="rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-white transition"
-              title="Maximize / Restore"
+              className="rounded-md p-1.5 text-slate-400 hover:bg-white/10 hover:text-white transition"
+              title="Maximize"
             >
               <Square className="h-3 w-3" />
             </button>
             <button
               type="button"
               onClick={() => desktopApi.closeWindow()}
-              className="rounded-lg p-2 text-slate-400 hover:bg-rose-600 hover:text-white transition"
-              title="Close HiDeM"
+              className="rounded-md p-1.5 text-slate-400 hover:bg-rose-600 hover:text-white transition"
+              title="Close"
             >
               <X className="h-3.5 w-3.5" />
             </button>

@@ -1,9 +1,10 @@
 # Dependencies (exceeds GitHub 100MB limit if not ignored)
 node_modules/
 
-# Temporary compiled files
+# Temporary compiled files & auto-save workspace backups
 src-backend/temp/*
 !src-backend/temp/.gitkeep
+workspace/
 
 # Logs & OS files
 *.log
