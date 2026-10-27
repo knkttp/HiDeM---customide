@@ -1,7 +1,7 @@
 {
   "name": "hidem",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.2.0",
   "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
     "dev:server": "tsx watch src-backend/server.ts",
     "build": "tsc && vite build",
     "build:backend": "esbuild src-backend/server.ts --bundle --platform=node --format=cjs --outfile=dist-backend/server.cjs",
-    "build:exe": "npm run build && npm run build:backend && g++ -O2 -std=c++17 -static -mwindows launcher/main.cpp launcher/app.res -o HiDeM.exe -lws2_32 -lshell32 -lole32",
+    "build:exe": "npm run build && npm run build:backend && g++ -Os -s -fno-exceptions -fno-rtti -static -mwindows launcher/main.cpp launcher/app.res -o HiDeM.exe -luser32 -lkernel32",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -20243,14 +20243,14 @@ var require_etag = __commonJS({
   "node_modules/etag/index.js"(exports2, module2) {
     "use strict";
     module2.exports = etag;
-    var crypto = require("crypto");
+    var crypto3 = require("crypto");
     var Stats = require("fs").Stats;
     var toString = Object.prototype.toString;
     function entitytag(entity) {
       if (entity.length === 0) {
         return '"0-2jmj7l5rSw0yVb/vlWAYkK/YBwk"';
       }
-      var hash = crypto.createHash("sha1").update(entity, "utf8").digest("base64").substring(0, 27);
+      var hash = crypto3.createHash("sha1").update(entity, "utf8").digest("base64").substring(0, 27);
       var len = typeof entity === "string" ? Buffer.byteLength(entity, "utf8") : entity.length;
       return '"' + len.toString(16) + "-" + hash + '"';
     }
@@ -23159,11 +23159,11 @@ var require_request = __commonJS({
 // node_modules/cookie-signature/index.js
 var require_cookie_signature = __commonJS({
   "node_modules/cookie-signature/index.js"(exports2) {
-    var crypto = require("crypto");
+    var crypto3 = require("crypto");
     exports2.sign = function(val, secret) {
       if ("string" !== typeof val) throw new TypeError("Cookie value must be provided as a string.");
       if (null == secret) throw new TypeError("Secret key must be provided.");
-      return val + "." + crypto.createHmac("sha256", secret).update(val).digest("base64").replace(/\=+$/, "");
+      return val + "." + crypto3.createHmac("sha256", secret).update(val).digest("base64").replace(/\=+$/, "");
     };
     exports2.unsign = function(val, secret) {
       if ("string" !== typeof val) throw new TypeError("Signed cookie string must be provided.");
@@ -23172,7 +23172,7 @@ var require_cookie_signature = __commonJS({
       return sha1(mac) == sha1(val) ? str : false;
     };
     function sha1(str) {
-      return crypto.createHash("sha1").update(str).digest("hex");
+      return crypto3.createHash("sha1").update(str).digest("hex");
     }
   }
 });
@@ -24434,10 +24434,15 @@ var import_promises = __toESM(require("fs/promises"), 1);
 var import_fs = __toESM(require("fs"), 1);
 var import_path = __toESM(require("path"), 1);
 var import_os = __toESM(require("os"), 1);
+var import_crypto = __toESM(require("crypto"), 1);
+var CACHED_ENV = null;
+var CACHED_GPP = null;
+var PCH_READY = false;
 function normalizeOutput(text) {
   return text.replace(/\r\n/g, "\n").split("\n").map((line) => line.trimEnd()).join("\n").trimEnd();
 }
 function getEnhancedEnv() {
+  if (CACHED_ENV) return CACHED_ENV;
   const extraPaths = [];
   const home = import_os.default.homedir();
   const localAppData = process.env.LOCALAPPDATA || import_path.default.join(home, "AppData", "Local");
@@ -24449,7 +24454,11 @@ function getEnhancedEnv() {
       for (const dir of import_fs.default.readdirSync(wingetPkgs)) {
         if (dir.toLowerCase().includes("winlibs")) {
           const candidate = import_path.default.join(wingetPkgs, dir, "mingw64", "bin");
-          if (import_fs.default.existsSync(candidate)) extraPaths.push(candidate);
+          if (import_fs.default.existsSync(candidate)) {
+            extraPaths.push(candidate);
+            const gppExe = import_path.default.join(candidate, "g++.exe");
+            if (!CACHED_GPP && import_fs.default.existsSync(gppExe)) CACHED_GPP = gppExe;
+          }
         }
       }
     } catch {
@@ -24459,27 +24468,17 @@ function getEnhancedEnv() {
   if (import_fs.default.existsSync(winGetLinks)) extraPaths.push(winGetLinks);
   const currentPath = process.env.PATH || process.env.Path || "";
   const sep = process.platform === "win32" ? ";" : ":";
-  return {
+  CACHED_ENV = {
     ...process.env,
     PATH: [...extraPaths, currentPath].join(sep)
   };
+  return CACHED_ENV;
 }
 function resolveGppBinary() {
-  const home = import_os.default.homedir();
-  const localAppData = process.env.LOCALAPPDATA || import_path.default.join(home, "AppData", "Local");
-  const wingetPkgs = import_path.default.join(localAppData, "Microsoft", "WinGet", "Packages");
-  if (import_fs.default.existsSync(wingetPkgs)) {
-    try {
-      for (const dir of import_fs.default.readdirSync(wingetPkgs)) {
-        if (dir.toLowerCase().includes("winlibs")) {
-          const gppExe = import_path.default.join(wingetPkgs, dir, "mingw64", "bin", "g++.exe");
-          if (import_fs.default.existsSync(gppExe)) return gppExe;
-        }
-      }
-    } catch {
-    }
-  }
-  return "g++";
+  if (CACHED_GPP) return CACHED_GPP;
+  getEnhancedEnv();
+  if (!CACHED_GPP) CACHED_GPP = "g++";
+  return CACHED_GPP;
 }
 function runProcessWithInput(command, args, input, timeoutMs = 3e3, cwd) {
   return new Promise((resolve) => {
@@ -24542,22 +24541,50 @@ ${err.message}` : err.message,
     child.stdin.end();
   });
 }
-async function runCpp(code, testCases, tempDir) {
-  await import_promises.default.mkdir(tempDir, { recursive: true });
-  const sessionId = `cpp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-  const srcFile = import_path.default.join(tempDir, `${sessionId}_main.cpp`);
-  const isWin = process.platform === "win32";
-  const outFile = import_path.default.join(tempDir, isWin ? `${sessionId}_main.exe` : `${sessionId}_main.out`);
-  await import_promises.default.writeFile(srcFile, code, "utf-8");
-  const gppCmd = resolveGppBinary();
+async function ensurePch(tempDir, gppCmd) {
+  const pchDir = import_path.default.join(tempDir, "pch");
+  const bitsDir = import_path.default.join(pchDir, "bits");
+  const pchHeader = import_path.default.join(bitsDir, "stdc++.h");
+  const pchGch = import_path.default.join(bitsDir, "stdc++.h.gch");
+  if (PCH_READY || import_fs.default.existsSync(pchGch)) {
+    PCH_READY = true;
+    return pchDir;
+  }
   try {
-    const compileRes = await runProcessWithInput(
+    await import_promises.default.mkdir(bitsDir, { recursive: true });
+    await import_promises.default.writeFile(pchHeader, "#pragma once\n#include_next <bits/stdc++.h>\n", "utf-8");
+    runProcessWithInput(
       gppCmd,
-      ["-O2", "-std=c++17", srcFile, "-o", outFile],
+      ["-O2", "-std=c++17", "-x", "c++-header", pchHeader, "-o", pchGch],
       "",
-      15e3,
+      2e4,
       tempDir
-    );
+    ).then((res) => {
+      if (res.exitCode === 0 && import_fs.default.existsSync(pchGch)) {
+        PCH_READY = true;
+      }
+    });
+  } catch {
+  }
+  return null;
+}
+async function runCpp(code, testCases, tempDir) {
+  const binCacheDir = import_path.default.join(tempDir, "bin_cache");
+  await import_promises.default.mkdir(binCacheDir, { recursive: true });
+  const hash = import_crypto.default.createHash("sha256").update(code).digest("hex").slice(0, 24);
+  const isWin = process.platform === "win32";
+  const outFile = import_path.default.join(binCacheDir, isWin ? `cpp_${hash}.exe` : `cpp_${hash}.out`);
+  const gppCmd = resolveGppBinary();
+  if (!import_fs.default.existsSync(outFile)) {
+    const srcFile = import_path.default.join(tempDir, `cpp_${hash}.cpp`);
+    await import_promises.default.writeFile(srcFile, code, "utf-8");
+    const pchDir = await ensurePch(tempDir, gppCmd);
+    const compileArgs = [];
+    if (pchDir) compileArgs.push(`-I${pchDir}`);
+    compileArgs.push("-O2", "-std=c++17", "-pipe", srcFile, "-o", outFile);
+    const compileRes = await runProcessWithInput(gppCmd, compileArgs, "", 15e3, tempDir);
+    await import_promises.default.unlink(srcFile).catch(() => {
+    });
     if (compileRes.exitCode !== 0 || compileRes.timedOut) {
       const errText = compileRes.stderr || "Compilation failed (g++ not found or syntax error).";
       return {
@@ -24571,45 +24598,41 @@ async function runCpp(code, testCases, tempDir) {
         }))
       };
     }
-    const results = [];
-    for (const tc of testCases) {
+  }
+  const results = await Promise.all(
+    testCases.map(async (tc) => {
       const execRes = await runProcessWithInput(outFile, [], tc.input, 3e3, tempDir);
       if (execRes.timedOut) {
-        results.push({
+        return {
           id: tc.id,
           actualOutput: "Time Limit Exceeded (> 3000ms)\n" + execRes.stdout,
           stderr: execRes.stderr,
           status: "TLE",
           timeMs: 3e3
-        });
-      } else if (execRes.exitCode !== 0) {
-        results.push({
+        };
+      }
+      if (execRes.exitCode !== 0) {
+        return {
           id: tc.id,
           actualOutput: execRes.stderr || execRes.stdout || `Runtime Error (Exit code ${execRes.exitCode})`,
           stderr: execRes.stderr,
           status: "RE",
           timeMs: execRes.timeMs
-        });
-      } else {
-        const normActual = normalizeOutput(execRes.stdout);
-        const normExpected = normalizeOutput(tc.expectedOutput);
-        const isAc = normActual === normExpected;
-        results.push({
-          id: tc.id,
-          actualOutput: execRes.stdout,
-          stderr: execRes.stderr,
-          status: isAc ? "AC" : "WA",
-          timeMs: execRes.timeMs
-        });
+        };
       }
-    }
-    return { results };
-  } finally {
-    await import_promises.default.unlink(srcFile).catch(() => {
-    });
-    await import_promises.default.unlink(outFile).catch(() => {
-    });
-  }
+      const normActual = normalizeOutput(execRes.stdout);
+      const normExpected = normalizeOutput(tc.expectedOutput);
+      const isAc = normActual === normExpected;
+      return {
+        id: tc.id,
+        actualOutput: execRes.stdout,
+        stderr: execRes.stderr,
+        status: isAc ? "AC" : "WA",
+        timeMs: execRes.timeMs
+      };
+    })
+  );
+  return { results };
 }
 
 // src-backend/runner/rustRunner.ts
@@ -24617,27 +24640,40 @@ var import_promises2 = __toESM(require("fs/promises"), 1);
 var import_fs2 = __toESM(require("fs"), 1);
 var import_path2 = __toESM(require("path"), 1);
 var import_os2 = __toESM(require("os"), 1);
+var import_crypto2 = __toESM(require("crypto"), 1);
+var CACHED_RUSTC = null;
 function resolveRustcBinary() {
+  if (CACHED_RUSTC) return CACHED_RUSTC;
   const cargoRustc = import_path2.default.join(import_os2.default.homedir(), ".cargo", "bin", process.platform === "win32" ? "rustc.exe" : "rustc");
-  if (import_fs2.default.existsSync(cargoRustc)) return cargoRustc;
-  return "rustc";
+  if (import_fs2.default.existsSync(cargoRustc)) {
+    CACHED_RUSTC = cargoRustc;
+    return CACHED_RUSTC;
+  }
+  CACHED_RUSTC = "rustc";
+  return CACHED_RUSTC;
 }
 async function runRust(code, testCases, tempDir) {
-  await import_promises2.default.mkdir(tempDir, { recursive: true });
-  const sessionId = `rs_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-  const srcFile = import_path2.default.join(tempDir, `${sessionId}_main.rs`);
+  const binCacheDir = import_path2.default.join(tempDir, "bin_cache");
+  await import_promises2.default.mkdir(binCacheDir, { recursive: true });
+  const hash = import_crypto2.default.createHash("sha256").update(code).digest("hex").slice(0, 24);
   const isWin = process.platform === "win32";
-  const outFile = import_path2.default.join(tempDir, isWin ? `${sessionId}_main_rs.exe` : `${sessionId}_main_rs.out`);
-  await import_promises2.default.writeFile(srcFile, code, "utf-8");
+  const outFile = import_path2.default.join(binCacheDir, isWin ? `rs_${hash}.exe` : `rs_${hash}.out`);
   const rustcCmd = resolveRustcBinary();
-  try {
+  if (!import_fs2.default.existsSync(outFile)) {
+    const srcFile = import_path2.default.join(tempDir, `rs_${hash}.rs`);
+    await import_promises2.default.writeFile(srcFile, code, "utf-8");
     const compileRes = await runProcessWithInput(
       rustcCmd,
-      ["-O", srcFile, "-o", outFile],
+      ["-O", "-C", "debuginfo=0", srcFile, "-o", outFile],
       "",
       15e3,
       tempDir
     );
+    await import_promises2.default.unlink(srcFile).catch(() => {
+    });
+    const pdbFile = outFile.replace(/\.exe$/, ".pdb");
+    await import_promises2.default.unlink(pdbFile).catch(() => {
+    });
     if (compileRes.exitCode !== 0 || compileRes.timedOut) {
       const errText = compileRes.stderr || "Compilation failed (rustc not found or syntax error).";
       return {
@@ -24651,48 +24687,41 @@ async function runRust(code, testCases, tempDir) {
         }))
       };
     }
-    const results = [];
-    for (const tc of testCases) {
+  }
+  const results = await Promise.all(
+    testCases.map(async (tc) => {
       const execRes = await runProcessWithInput(outFile, [], tc.input, 3e3, tempDir);
       if (execRes.timedOut) {
-        results.push({
+        return {
           id: tc.id,
           actualOutput: "Time Limit Exceeded (> 3000ms)\n" + execRes.stdout,
           stderr: execRes.stderr,
           status: "TLE",
           timeMs: 3e3
-        });
-      } else if (execRes.exitCode !== 0) {
-        results.push({
+        };
+      }
+      if (execRes.exitCode !== 0) {
+        return {
           id: tc.id,
           actualOutput: execRes.stderr || execRes.stdout || `Runtime Error (Exit code ${execRes.exitCode})`,
           stderr: execRes.stderr,
           status: "RE",
           timeMs: execRes.timeMs
-        });
-      } else {
-        const normActual = normalizeOutput(execRes.stdout);
-        const normExpected = normalizeOutput(tc.expectedOutput);
-        const isAc = normActual === normExpected;
-        results.push({
-          id: tc.id,
-          actualOutput: execRes.stdout,
-          stderr: execRes.stderr,
-          status: isAc ? "AC" : "WA",
-          timeMs: execRes.timeMs
-        });
+        };
       }
-    }
-    return { results };
-  } finally {
-    await import_promises2.default.unlink(srcFile).catch(() => {
-    });
-    await import_promises2.default.unlink(outFile).catch(() => {
-    });
-    const pdbFile = outFile.replace(/\.exe$/, ".pdb");
-    await import_promises2.default.unlink(pdbFile).catch(() => {
-    });
-  }
+      const normActual = normalizeOutput(execRes.stdout);
+      const normExpected = normalizeOutput(tc.expectedOutput);
+      const isAc = normActual === normExpected;
+      return {
+        id: tc.id,
+        actualOutput: execRes.stdout,
+        stderr: execRes.stderr,
+        status: isAc ? "AC" : "WA",
+        timeMs: execRes.timeMs
+      };
+    })
+  );
+  return { results };
 }
 
 // src-backend/runner/pythonRunner.ts

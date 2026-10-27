@@ -1,5 +1,9 @@
 # Dependencies (exceeds GitHub 100MB limit if not ignored)
 node_modules/
+HiDeM-Portable-*/node_modules/
+
+# Release archives (upload to GitHub Releases, not git repo)
+*.zip
 
 # Temporary compiled files & auto-save workspace backups
 src-backend/temp/*
